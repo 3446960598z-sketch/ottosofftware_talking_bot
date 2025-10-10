@@ -19,7 +19,7 @@ def call_deepseek(prompt: str) -> str:
     url = "https://api.laozhang.ai/v1/chat/completions"
     headers = {"Authorization": f"Bearer {GROK_API_KEY}"}
     payload = {
-        "model": "grok-4-latest",     
+        "model": "gpt-4-turbo",     
         "messages": [
             {
                 "role": "system",
@@ -206,6 +206,7 @@ def main():
 
 if __name__ == "__main__":
     main()
+
 
 
 
