@@ -10,7 +10,7 @@ DEEPSEEK_KEY = os.environ["DEEPSEEK_KEY"]
 def call_deepseek(prompt):
     """调用 DeepSeek API 获取回复"""
     url = "https://api.deepseek.com/chat/completions"
-    headers = {"Authorization": f"Bearer sk-89cc865e6466491d8cbd18483e8801e4"}
+    headers = {"Authorization": f"Bearer {DEEPSEEK_KEY}"}
     payload = {
         "model": "deepseek-chat",
         "messages": [
@@ -190,4 +190,5 @@ def main():
 
 if __name__ == "__main__":
     main()
+
 
