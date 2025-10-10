@@ -8,7 +8,7 @@ from telegram.ext import ApplicationBuilder, MessageHandler, ContextTypes, filte
 # 环境变量读取
 # =============================
 TELEGRAM_TOKEN = os.environ["TG_TOKEN"]
-DEEPSEEK_KEY = os.environ["DEEPSEEK_KEY"]
+GROK_API_KEY = os.environ["GROK_API_KEY"] 
 DATABASE_URL = os.environ["DATABASE_URL"]
 conn = psycopg2.connect(DATABASE_URL)
 
@@ -16,10 +16,10 @@ conn = psycopg2.connect(DATABASE_URL)
 # DeepSeek API 调用函数
 # =============================
 def call_deepseek(prompt: str) -> str:
-    url = "https://api.deepseek.com/chat/completions"
-    headers = {"Authorization": f"Bearer {DEEPSEEK_KEY}"}
+    url = "https://api.laozhang.ai/v1/chat/completions"
+    headers = {"Authorization": f"Bearer {GROK_API_KEY}"}
     payload = {
-        "model": "deepseek-chat",
+        "model": "grok-4-latest",     
         "messages": [
             {
                 "role": "system",
@@ -180,9 +180,13 @@ def call_deepseek(prompt: str) -> str:
             {"role": "user", "content": prompt}
         ]
     }
-    response = requests.post(url, headers=headers, json=payload)
-    data = response.json()
-    return data["choices"][0]["message"]["content"]
+    try
+        resp = requests.post(url, headers=headers, json=payload, timeout=15) # <<< 加 timeout 防止阻塞
+        resp.raise_for_status()  # <<< 检查请求是否成功
+        data = resp.json()
+        return data["choices"][0]["message"]["content"]
+     except Exception as e:
+        return f"请求出错: {e}"   # <<< 错误处理
 
 # =============================
 # Telegram 消息处理函数
@@ -202,4 +206,5 @@ def main():
 
 if __name__ == "__main__":
     main()
+
 
