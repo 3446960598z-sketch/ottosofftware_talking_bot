@@ -180,7 +180,7 @@ def call_deepseek(prompt: str) -> str:
             {"role": "user", "content": prompt}
         ]
     }
-    try
+    try:
         resp = requests.post(url, headers=headers, json=payload, timeout=15) # <<< 加 timeout 防止阻塞
         resp.raise_for_status()  # <<< 检查请求是否成功
         data = resp.json()
@@ -206,5 +206,6 @@ def main():
 
 if __name__ == "__main__":
     main()
+
 
 
