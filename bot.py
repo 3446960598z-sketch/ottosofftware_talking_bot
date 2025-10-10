@@ -185,7 +185,7 @@ def call_deepseek(prompt: str) -> str:
         resp.raise_for_status()  # <<< 检查请求是否成功
         data = resp.json()
         return data["choices"][0]["message"]["content"]
-     except Exception as e:
+    except Exception as e:
         return f"请求出错: {e}"   # <<< 错误处理
 
 # =============================
@@ -206,6 +206,7 @@ def main():
 
 if __name__ == "__main__":
     main()
+
 
 
 
