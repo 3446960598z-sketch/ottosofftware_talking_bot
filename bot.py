@@ -1,4 +1,5 @@
 import os
+import psycopg2
 import requests
 from telegram import Update
 from telegram.ext import ApplicationBuilder, MessageHandler, ContextTypes, filters
@@ -8,6 +9,8 @@ from telegram.ext import ApplicationBuilder, MessageHandler, ContextTypes, filte
 # =============================
 TELEGRAM_TOKEN = os.environ["TG_TOKEN"]
 DEEPSEEK_KEY = os.environ["DEEPSEEK_KEY"]
+DATABASE_URL = os.environ["DATABASE_URL"]
+conn = psycopg2.connect(DATABASE_URL)
 
 # =============================
 # DeepSeek API 调用函数
@@ -199,3 +202,4 @@ def main():
 
 if __name__ == "__main__":
     main()
+
