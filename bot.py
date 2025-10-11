@@ -8,7 +8,7 @@ from telegram.ext import ApplicationBuilder, MessageHandler, ContextTypes, filte
 # 环境变量读取
 # =============================
 TELEGRAM_TOKEN = os.environ["TG_TOKEN"]
-GROK_API_KEY = os.environ["GROK_API_KEY"] 
+DEEPSEEK_KEY = os.environ["DEEPSEEK_KEY"]  # Railway 环境变量
 DATABASE_URL = os.environ["DATABASE_URL"]
 conn = psycopg2.connect(DATABASE_URL)
 
@@ -16,10 +16,10 @@ conn = psycopg2.connect(DATABASE_URL)
 # DeepSeek API 调用函数
 # =============================
 def call_deepseek(prompt: str) -> str:
-    url = "https://api.laozhang.ai/v1/chat/completions"
-    headers = {"Authorization": f"Bearer {GROK_API_KEY}"}
+    url = "https://api.deepseek.com/v1/chat/completions"
+    headers = {"Authorization": f"Bearer {DEEPSEEK_KEY}"}
     payload = {
-        "model": "gpt-4-turbo",     
+        "model": "deepseek-chat",     
         "messages": [
             {
                 "role": "system",
@@ -206,6 +206,7 @@ def main():
 
 if __name__ == "__main__":
     main()
+
 
 
 
