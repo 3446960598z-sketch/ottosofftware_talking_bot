@@ -13,7 +13,7 @@ DEEPSEEK_KEY = os.environ["DEEPSEEK_KEY"]
 # =============================
 # 白名单设置（你的 Telegram 用户 ID）
 # =============================
-ALLOWED_USERS = {6487810849}  # <<< 替换成你的 Telegram ID
+ALLOWED_USERS = {6487810849,6090684721}  # <<< 替换成你的 Telegram ID
 
 # =============================
 # DeepSeek API 异步调用
@@ -243,6 +243,7 @@ def main():
 
 if __name__ == "__main__":
     main()
+
 
 
 
