@@ -1,9 +1,10 @@
+
 import os
 import asyncio
 import httpx
 import psycopg
 from telegram import Update
-from telegram.ext import ApplicationBuilder, MessageHandler, ContextTypes, filters
+from telegram.ext import Application, ApplicationBuilder, MessageHandler, ContextTypes, filters
 from dotenv import load_dotenv
 
 # =============================
@@ -30,9 +31,8 @@ async def init_db():
                 timestamp TIMESTAMPTZ DEFAULT NOW()
             );
         """)
-    await conn.commit()
-    await conn.close()
-    return await psycopg.AsyncConnection.connect(DATABASE_URL)
+        await conn.commit()
+    return conn
 
 async def get_chat_history(conn: psycopg.AsyncConnection, chat_id: int, limit: int = 10):
     """从数据库获取当天的聊天记录"""
@@ -127,26 +127,27 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
 # 主程序入口
 # =============================
 async def main():
-    # 初始化数据库
-    db_connection = await init_db()
-    
-    # 创建 httpx 客户端
-    http_client = httpx.AsyncClient()
+    """启动机器人"""
+    # 将资源初始化放在 async with 块中，以便自动管理
+    async with httpx.AsyncClient() as http_client, await init_db() as db_connection:
+        
+        # 使用 ApplicationBuilder 创建应用
+        builder = Application.builder().token(TELEGRAM_TOKEN)
+        app = builder.build()
 
-    app = ApplicationBuilder().token(TELEGRAM_TOKEN).build()
-    
-    # 将数据库连接和 http 客户端存入 bot_data
-    app.bot_data["db_conn"] = db_connection
-    app.bot_data["http_client"] = http_client
+        # 将数据库连接和 http 客户端存入 bot_data，供所有 handler 使用
+        app.bot_data["db_conn"] = db_connection
+        app.bot_data["http_client"] = http_client
 
-    app.add_handler(MessageHandler(filters.TEXT & (~filters.COMMAND), handle_message))
-    
-    try:
+        # 注册消息处理器
+        app.add_handler(MessageHandler(filters.TEXT & (~filters.COMMAND), handle_message))
+
+        # 使用 run_polling 启动机器人
+        # 它会自动处理异步循环，并在接收到停止信号时优雅地关闭
         await app.run_polling()
-    finally:
-        # 清理资源
-        await db_connection.close()
-        await http_client.aclose()
 
 if __name__ == "__main__":
-    asyncio.run(main())
+    try:
+        asyncio.run(main())
+    except (KeyboardInterrupt, SystemExit):
+        print("Bot stopped.")
