@@ -1,4 +1,3 @@
-
 import os
 import asyncio
 import httpx
@@ -36,13 +35,13 @@ async def init_db():
     return await psycopg.AsyncConnection.connect(DATABASE_URL)
 
 async def get_chat_history(conn: psycopg.AsyncConnection, chat_id: int, limit: int = 10):
-    """从数据库获取最近的聊天记录"""
+    """从数据库获取当天的聊天记录"""
     async with conn.cursor() as cur:
         await cur.execute("""
             SELECT role, content FROM (
                 SELECT role, content, timestamp
                 FROM chat_history
-                WHERE chat_id = %s
+                WHERE chat_id = %s AND timestamp >= NOW() - INTERVAL '1 day'
                 ORDER BY timestamp DESC
                 LIMIT %s
             ) AS recent_history
@@ -143,13 +142,11 @@ async def main():
     app.add_handler(MessageHandler(filters.TEXT & (~filters.COMMAND), handle_message))
     
     try:
-        print("机器人启动中...")
         await app.run_polling()
     finally:
         # 清理资源
         await db_connection.close()
         await http_client.aclose()
-        print("机器人已关闭。")
 
 if __name__ == "__main__":
     asyncio.run(main())
