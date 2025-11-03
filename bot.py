@@ -66,7 +66,7 @@ def read_context_from_file(file_path: str) -> str:
         with open(file_path, 'r', encoding='utf-8') as f:
             return f.read().strip()
     except FileNotFoundError:
-        return "你是一个乐于助人的AI助手。"
+        return ""
 
 # =============================
 # DeepSeek API 调用函数
