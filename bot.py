@@ -3,7 +3,7 @@ import asyncio
 import httpx
 import psycopg
 from telegram import Update
-from telegram.ext import Application, MessageHandler, ContextTypes, filters
+from telegram.ext import Application, CommandHandler, MessageHandler, ContextTypes, filters
 from dotenv import load_dotenv
 
 # =============================
@@ -58,6 +58,21 @@ async def add_to_chat_history(conn: psycopg.AsyncConnection, chat_id: int, role:
         )
     await conn.commit()
 
+async def delete_today_history(conn: psycopg.AsyncConnection, chat_id: int):
+    """删除指定 chat_id 当天的聊天记录"""
+    async with conn.cursor() as cur:
+        await cur.execute(
+            "DELETE FROM chat_history WHERE chat_id = %s AND timestamp >= NOW() - INTERVAL '1 day'",
+            (chat_id,)
+        )
+    await conn.commit()
+
+async def delete_all_history(conn: psycopg.AsyncConnection, chat_id: int):
+    """删除指定 chat_id 的所有聊天记录"""
+    async with conn.cursor() as cur:
+        await cur.execute("DELETE FROM chat_history WHERE chat_id = %s", (chat_id,))
+    await conn.commit()
+
 # =============================
 # 从文件读取 System Prompt
 # =============================
@@ -88,7 +103,7 @@ async def call_deepseek(prompt_messages: list, client: httpx.AsyncClient) -> str
         return "抱歉，我好像出错了。"
 
 # =============================
-# Telegram 消息处理函数
+# Telegram 命令与消息处理函数
 # =============================
 async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
     chat_id = update.message.chat_id
@@ -112,39 +127,54 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
     await update.message.reply_text(reply)
 
+async def clear_today_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """处理 /clear_today 命令"""
+    chat_id = update.message.chat_id
+    db_conn = context.bot_data["db_conn"]
+    await delete_today_history(db_conn, chat_id)
+    await update.message.reply_text("好的，我们今天重新开始吧！")
+
+async def clear_all_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """处理 /clear_all 命令"""
+    chat_id = update.message.chat_id
+    db_conn = context.bot_data["db_conn"]
+    await delete_all_history(db_conn, chat_id)
+    await update.message.reply_text("你好，初次见面！很高兴认识你。")
+
 # =============================
 # 主程序入口
 # =============================
 def main() -> None:
     """设置并运行机器人"""
 
-    # 定义在启动时运行的异步函数
     async def post_init(application: Application):
         db_conn = await psycopg.AsyncConnection.connect(DATABASE_URL)
         await create_table(db_conn)
         application.bot_data["db_conn"] = db_conn
         application.bot_data["http_client"] = httpx.AsyncClient()
 
-    # 定义在关闭时运行的异步函数
     async def post_shutdown(application: Application):
         if "http_client" in application.bot_data:
             await application.bot_data["http_client"].aclose()
         if "db_conn" in application.bot_data:
             await application.bot_data["db_conn"].close()
 
-    # 使用 ApplicationBuilder 创建应用
     application = (
         Application.builder()
         .token(TELEGRAM_TOKEN)
-        .post_init(post_init)          # 注册启动钩子
-        .post_shutdown(post_shutdown)  # 注册关闭钩子
+        .post_init(post_init)
+        .post_shutdown(post_shutdown)
         .build()
     )
 
+    # 注册命令处理器
+    application.add_handler(CommandHandler("clear_today", clear_today_command))
+    application.add_handler(CommandHandler("clear_all", clear_all_command))
+    
     # 注册消息处理器
     application.add_handler(MessageHandler(filters.TEXT & (~filters.COMMAND), handle_message))
 
-    # 启动机器人 (这是一个阻塞式调用，直到程序停止)
+    # 启动机器人
     application.run_polling()
 
 if __name__ == "__main__":
