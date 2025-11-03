@@ -4,7 +4,7 @@ import asyncio
 import httpx
 import psycopg
 from telegram import Update
-from telegram.ext import Application, ApplicationBuilder, MessageHandler, ContextTypes, filters
+from telegram.ext import Application, MessageHandler, ContextTypes, filters
 from dotenv import load_dotenv
 
 # =============================
@@ -13,14 +13,13 @@ from dotenv import load_dotenv
 load_dotenv()
 TELEGRAM_TOKEN = os.environ["TG_TOKEN"]
 DEEPSEEK_KEY = os.environ["DEEPSEEK_KEY"]
-DATABASE_URL = os.environ["DATABASE_URL"]  # Railway 会自动提供这个环境变量
+DATABASE_URL = os.environ["DATABASE_URL"]
 
 # =============================
-# 数据库设置
+# 数据库初始化 (仅建表)
 # =============================
-async def init_db():
-    """初始化数据库，创建表"""
-    conn = await psycopg.AsyncConnection.connect(DATABASE_URL)
+async def create_table(conn: psycopg.AsyncConnection):
+    """如果表不存在，则创建它"""
     async with conn.cursor() as cur:
         await cur.execute("""
             CREATE TABLE IF NOT EXISTS chat_history (
@@ -32,8 +31,10 @@ async def init_db():
             );
         """)
         await conn.commit()
-    return conn
 
+# =============================
+# 数据库操作
+# =============================
 async def get_chat_history(conn: psycopg.AsyncConnection, chat_id: int, limit: int = 10):
     """从数据库获取当天的聊天记录"""
     async with conn.cursor() as cur:
@@ -62,7 +63,6 @@ async def add_to_chat_history(conn: psycopg.AsyncConnection, chat_id: int, role:
 # 从文件读取 System Prompt
 # =============================
 def read_context_from_file(file_path: str) -> str:
-    """从指定的 .txt 文件中读取内容作为 system prompt。"""
     try:
         with open(file_path, 'r', encoding='utf-8') as f:
             return f.read().strip()
@@ -73,13 +73,9 @@ def read_context_from_file(file_path: str) -> str:
 # DeepSeek API 调用函数
 # =============================
 async def call_deepseek(prompt_messages: list, client: httpx.AsyncClient) -> str:
-    """使用 httpx 异步调用 DeepSeek API"""
     url = "https://api.deepseek.com/chat/completions"
     headers = {"Authorization": f"Bearer {DEEPSEEK_KEY}"}
-    payload = {
-        "model": "deepseek-chat",
-        "messages": prompt_messages
-    }
+    payload = {"model": "deepseek-chat", "messages": prompt_messages}
     try:
         response = await client.post(url, headers=headers, json=payload, timeout=30.0)
         response.raise_for_status()
@@ -102,52 +98,58 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
     db_conn = context.bot_data["db_conn"]
     http_client = context.bot_data["http_client"]
 
-    # 1. 将用户消息存入数据库
     await add_to_chat_history(db_conn, chat_id, "user", user_text)
 
-    # 2. 准备 API 请求的 messages
     system_prompt = read_context_from_file('context.txt')
     messages = [{"role": "system", "content": system_prompt}]
     
-    # 3. 从数据库获取历史记录并添加到 messages
     history = await get_chat_history(db_conn, chat_id)
     for role, content in history:
         messages.append({"role": role, "content": content})
     
-    # 4. 调用 API 获取回复
     reply = await call_deepseek(messages, http_client)
 
-    # 5. 将机器人回复存入数据库
     await add_to_chat_history(db_conn, chat_id, "assistant", reply)
 
-    # 6. 发送回复
     await update.message.reply_text(reply)
 
 # =============================
 # 主程序入口
 # =============================
 async def main():
-    """启动机器人"""
-    # 将资源初始化放在 async with 块中，以便自动管理
-    async with httpx.AsyncClient() as http_client, await init_db() as db_connection:
-        
-        # 使用 ApplicationBuilder 创建应用
-        builder = Application.builder().token(TELEGRAM_TOKEN)
-        app = builder.build()
+    """设置并运行机器人"""
 
-        # 将数据库连接和 http 客户端存入 bot_data，供所有 handler 使用
-        app.bot_data["db_conn"] = db_connection
-        app.bot_data["http_client"] = http_client
+    # 定义在启动时运行的异步函数
+    async def post_init(application: Application):
+        db_conn = await psycopg.AsyncConnection.connect(DATABASE_URL)
+        await create_table(db_conn)
+        application.bot_data["db_conn"] = db_conn
+        application.bot_data["http_client"] = httpx.AsyncClient()
 
-        # 注册消息处理器
-        app.add_handler(MessageHandler(filters.TEXT & (~filters.COMMAND), handle_message))
+    # 定义在关闭时运行的异步函数
+    async def post_shutdown(application: Application):
+        if "http_client" in application.bot_data:
+            await application.bot_data["http_client"].aclose()
+        if "db_conn" in application.bot_data:
+            await application.bot_data["db_conn"].close()
 
-        # 使用 run_polling 启动机器人
-        # 它会自动处理异步循环，并在接收到停止信号时优雅地关闭
-        await app.run_polling()
+    # 使用 ApplicationBuilder 创建应用
+    application = (
+        Application.builder()
+        .token(TELEGRAM_TOKEN)
+        .post_init(post_init)          # 注册启动钩子
+        .post_shutdown(post_shutdown)  # 注册关闭钩子
+        .build()
+    )
+
+    # 注册消息处理器
+    application.add_handler(MessageHandler(filters.TEXT & (~filters.COMMAND), handle_message))
+
+    # 启动机器人 (这是一个阻塞式调用，直到程序停止)
+    await application.run_polling()
 
 if __name__ == "__main__":
     try:
         asyncio.run(main())
     except (KeyboardInterrupt, SystemExit):
-        print("Bot stopped.")
+        print("Bot stopped gracefully.")
