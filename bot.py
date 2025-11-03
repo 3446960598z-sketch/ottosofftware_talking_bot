@@ -1,4 +1,3 @@
-
 import os
 import asyncio
 import httpx
@@ -116,7 +115,7 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
 # =============================
 # 主程序入口
 # =============================
-async def main():
+def main() -> None:
     """设置并运行机器人"""
 
     # 定义在启动时运行的异步函数
@@ -146,10 +145,7 @@ async def main():
     application.add_handler(MessageHandler(filters.TEXT & (~filters.COMMAND), handle_message))
 
     # 启动机器人 (这是一个阻塞式调用，直到程序停止)
-    await application.run_polling()
+    application.run_polling()
 
 if __name__ == "__main__":
-    try:
-        asyncio.run(main())
-    except (KeyboardInterrupt, SystemExit):
-        print("Bot stopped gracefully.")
+    main()
