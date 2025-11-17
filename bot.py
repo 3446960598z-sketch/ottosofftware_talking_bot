@@ -35,8 +35,12 @@ async def create_table(conn: psycopg.AsyncConnection):
 # 数据库操作
 # =============================
 async def get_chat_history(conn: psycopg.AsyncConnection, chat_id: int, limit: int = 10):
-    """从数据库获取当天的聊天记录"""
+    """
+    从数据库获取当天的聊天记录，并确保它们按时间升序排列，
+    以构成正确的对话历史（旧 -> 新）。
+    """
     async with conn.cursor() as cur:
+        # 使用子查询：内层按时间倒序取最新的 N 条，外层再按时间升序排列
         await cur.execute("""
             SELECT role, content FROM (
                 SELECT role, content, timestamp
@@ -103,29 +107,56 @@ async def call_deepseek(prompt_messages: list, client: httpx.AsyncClient) -> str
         return "抱歉，我好像出错了。"
 
 # =============================
-# Telegram 命令与消息处理函数
+# Telegram 命令与消息处理函数 (已修改以支持并发控制)
 # =============================
 async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
     chat_id = update.message.chat_id
     user_text = update.message.text
     
-    db_conn = context.bot_data["db_conn"]
-    http_client = context.bot_data["http_client"]
-
-    await add_to_chat_history(db_conn, chat_id, "user", user_text)
-
-    system_prompt = read_context_from_file('context.txt')
-    messages = [{"role": "system", "content": system_prompt}]
+    # --- 关键修改：并发锁定机制 ---
+    lock_key = "processing_lock"
     
-    history = await get_chat_history(db_conn, chat_id)
-    for role, content in history:
-        messages.append({"role": role, "content": content})
+    if lock_key in context.chat_data:
+        # 如果当前聊天正在处理中，则忽略新消息并给出提示
+        await update.message.reply_text("抱歉，我正在处理您上一条消息，请稍候...")
+        return
     
-    reply = await call_deepseek(messages, http_client)
+    context.chat_data[lock_key] = True # 设置锁定标志
+    
+    try:
+        db_conn = context.bot_data["db_conn"]
+        http_client = context.bot_data["http_client"]
 
-    await add_to_chat_history(db_conn, chat_id, "assistant", reply)
+        # 1. 记录用户消息
+        await add_to_chat_history(db_conn, chat_id, "user", user_text)
 
-    await update.message.reply_text(reply)
+        # 2. 构建请求消息列表 (System Prompt + History)
+        system_prompt = read_context_from_file('context.txt')
+        messages = [{"role": "system", "content": system_prompt}]
+        
+        history = await get_chat_history(db_conn, chat_id)
+        for role, content in history:
+            messages.append({"role": role, "content": content})
+        
+        # 3. 调用 DeepSeek API
+        reply = await call_deepseek(messages, http_client)
+
+        # 4. 记录机器人回复
+        await add_to_chat_history(db_conn, chat_id, "assistant", reply)
+
+        # 5. 回复用户
+        await update.message.reply_text(reply)
+
+    except Exception as e:
+        # 错误处理
+        print(f"处理消息时发生错误: {e}")
+        await update.message.reply_text("抱歉，处理消息时出现未知错误。")
+    
+    finally:
+        # --- 关键修改：清除锁定 ---
+        if lock_key in context.chat_data:
+            del context.chat_data[lock_key]
+
 
 async def clear_today_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """处理 /clear_today 命令"""
