@@ -21,22 +21,24 @@ MAX_MESSAGE_LEN = 4000  # Telegram 单条消息上限约 4096 字符
 
 async def send_long_message(update: Update, text: str):
     """
-    将长文本自动拆分成多条消息发送。
-    也会按换行拆分，避免单条消息太长。
+    强制将输出按行拆成多条 Telegram 消息。
+    每一条消息只包含一行内容。
+    如果模型输出没有换行，也只会发送一条。
     """
     lines = text.split("\n")
-    buffer = ""
 
     for line in lines:
-        # +1 代表换行符
-        if len(buffer) + len(line) + 1 <= MAX_MESSAGE_LEN:
-            buffer += line + "\n"
-        else:
-            await update.message.reply_text(buffer)
-            buffer = line + "\n"
+        line = line.strip()
+        if not line:
+            continue
 
-    if buffer.strip():
-        await update.message.reply_text(buffer)
+        # 每条消息只发一行，超过长度自动截断成两条
+        while len(line) > MAX_MESSAGE_LEN:
+            await update.message.reply_text(line[:MAX_MESSAGE_LEN])
+            line = line[MAX_MESSAGE_LEN:]
+
+        await update.message.reply_text(line)
+
 
 # =============================
 # 数据库初始化 (仅建表)
@@ -224,3 +226,4 @@ def main() -> None:
 
 if __name__ == "__main__":
     main()
+
