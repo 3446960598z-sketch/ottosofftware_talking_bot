@@ -15,6 +15,30 @@ DEEPSEEK_KEY = os.environ["DEEPSEEK_KEY"]
 DATABASE_URL = os.environ["DATABASE_URL"]
 
 # =============================
+# Telegram 发送多条消息函数
+# =============================
+MAX_MESSAGE_LEN = 4000  # Telegram 单条消息上限约 4096 字符
+
+async def send_long_message(update: Update, text: str):
+    """
+    将长文本自动拆分成多条消息发送。
+    也会按换行拆分，避免单条消息太长。
+    """
+    lines = text.split("\n")
+    buffer = ""
+
+    for line in lines:
+        # +1 代表换行符
+        if len(buffer) + len(line) + 1 <= MAX_MESSAGE_LEN:
+            buffer += line + "\n"
+        else:
+            await update.message.reply_text(buffer)
+            buffer = line + "\n"
+
+    if buffer.strip():
+        await update.message.reply_text(buffer)
+
+# =============================
 # 数据库初始化 (仅建表)
 # =============================
 async def create_table(conn: psycopg.AsyncConnection):
@@ -40,7 +64,6 @@ async def get_chat_history(conn: psycopg.AsyncConnection, chat_id: int, limit: i
     以构成正确的对话历史（旧 -> 新）。
     """
     async with conn.cursor() as cur:
-        # 使用子查询：内层按时间倒序取最新的 N 条，外层再按时间升序排列
         await cur.execute("""
             SELECT role, content FROM (
                 SELECT role, content, timestamp
@@ -107,66 +130,58 @@ async def call_deepseek(prompt_messages: list, client: httpx.AsyncClient) -> str
         return "抱歉，我好像出错了。"
 
 # =============================
-# Telegram 命令与消息处理函数 (已修改以支持并发控制)
+# Telegram 命令与消息处理
 # =============================
 async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
     chat_id = update.message.chat_id
     user_text = update.message.text
     
-    # --- 关键修改：并发锁定机制 ---
+    # 并发锁
     lock_key = "processing_lock"
-    
     if lock_key in context.chat_data:
-        # 如果当前聊天正在处理中，则忽略新消息并给出提示
         await update.message.reply_text("抱歉，我正在处理您上一条消息，请稍候...")
         return
-    
-    context.chat_data[lock_key] = True # 设置锁定标志
-    
+    context.chat_data[lock_key] = True
+
     try:
         db_conn = context.bot_data["db_conn"]
         http_client = context.bot_data["http_client"]
 
-        # 1. 记录用户消息
+        # 记录用户消息
         await add_to_chat_history(db_conn, chat_id, "user", user_text)
 
-        # 2. 构建请求消息列表 (System Prompt + History)
+        # 构建上下文
         system_prompt = read_context_from_file('context.txt')
         messages = [{"role": "system", "content": system_prompt}]
         
         history = await get_chat_history(db_conn, chat_id)
         for role, content in history:
             messages.append({"role": role, "content": content})
-        
-        # 3. 调用 DeepSeek API
+
+        # 调用 AI
         reply = await call_deepseek(messages, http_client)
 
-        # 4. 记录机器人回复
+        # 记录机器人回复
         await add_to_chat_history(db_conn, chat_id, "assistant", reply)
 
-        # 5. 回复用户
-        await update.message.reply_text(reply)
+        # 🔥 使用自动拆分多消息发送
+        await send_long_message(update, reply)
 
     except Exception as e:
-        # 错误处理
         print(f"处理消息时发生错误: {e}")
         await update.message.reply_text("抱歉，处理消息时出现未知错误。")
     
     finally:
-        # --- 关键修改：清除锁定 ---
         if lock_key in context.chat_data:
             del context.chat_data[lock_key]
 
-
 async def clear_today_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    """处理 /clear_today 命令"""
     chat_id = update.message.chat_id
     db_conn = context.bot_data["db_conn"]
     await delete_today_history(db_conn, chat_id)
     await update.message.reply_text("好的，我们今天重新开始吧！")
 
 async def clear_all_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    """处理 /clear_all 命令"""
     chat_id = update.message.chat_id
     db_conn = context.bot_data["db_conn"]
     await delete_all_history(db_conn, chat_id)
@@ -176,7 +191,6 @@ async def clear_all_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
 # 主程序入口
 # =============================
 def main() -> None:
-    """设置并运行机器人"""
 
     async def post_init(application: Application):
         db_conn = await psycopg.AsyncConnection.connect(DATABASE_URL)
@@ -198,11 +212,11 @@ def main() -> None:
         .build()
     )
 
-    # 注册命令处理器
+    # 注册命令
     application.add_handler(CommandHandler("clear_today", clear_today_command))
     application.add_handler(CommandHandler("clear_all", clear_all_command))
     
-    # 注册消息处理器
+    # 注册文本消息处理
     application.add_handler(MessageHandler(filters.TEXT & (~filters.COMMAND), handle_message))
 
     # 启动机器人
