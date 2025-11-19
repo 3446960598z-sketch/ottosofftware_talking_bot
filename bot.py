@@ -10,9 +10,15 @@ from dotenv import load_dotenv
 # 加载环境变量
 # =============================
 load_dotenv()
+
+# 必须的环境变量，如果缺少会报错
 TELEGRAM_TOKEN = os.environ["TG_TOKEN"]
 DEEPSEEK_KEY = os.environ["DEEPSEEK_KEY"]
 DATABASE_URL = os.environ["DATABASE_URL"]
+
+# 新增：API URL 和 模型名称 (支持从环境变量读取，保留默认值以防万一，或者你可以去除默认值强制要求配置)
+API_URL = os.getenv("API_URL", "https://api.deepseek.com/chat/completions")
+MODEL_NAME = os.getenv("MODEL_NAME", "deepseek-chat")
 
 # =============================
 # Telegram 发送多条消息函数
@@ -116,9 +122,11 @@ def read_context_from_file(file_path: str) -> str:
 # DeepSeek API 调用函数
 # =============================
 async def call_deepseek(prompt_messages: list, client: httpx.AsyncClient) -> str:
-    url = "https://api.deepseek.com/chat/completions"
+    # 使用全局变量 API_URL
+    url = API_URL
     headers = {"Authorization": f"Bearer {DEEPSEEK_KEY}"}
-    payload = {"model": "deepseek-chat", "messages": prompt_messages}
+    # 使用全局变量 MODEL_NAME
+    payload = {"model": MODEL_NAME, "messages": prompt_messages}
     try:
         response = await client.post(url, headers=headers, json=payload, timeout=30.0)
         response.raise_for_status()
